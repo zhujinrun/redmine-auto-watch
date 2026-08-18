@@ -1,0 +1,8 @@
+{
+  "redmine_url": "https://www.redmine.org",
+  "api_key": "在此填入你的 Redmine API Key",
+  "poll_interval": 30,
+  "log_file": "watch.log",
+  "state_file": "state.json",
+  "timezone": "Asia/Shanghai"
+}

@@ -1,0 +1,7 @@
+*.exe
+*.log
+config.json
+state.json
+out.log
+fg.out
+fg.err
