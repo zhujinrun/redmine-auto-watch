@@ -62,6 +62,7 @@ type Watcher struct {
 	state   *State
 	loc     *time.Location
 	client  *http.Client
+	feishu  *FeishuClient
 }
 
 func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
@@ -70,7 +71,7 @@ func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
 		logger.Printf("警告: 无法加载时区 %q, 回退到本地时区: %v", cfg.Timezone, err)
 		loc = time.Local
 	}
-	return &Watcher{
+	w := &Watcher{
 		cfg:     cfg,
 		baseDir: baseDir,
 		logger:  logger,
@@ -78,6 +79,13 @@ func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
 		loc:     loc,
 		client:  &http.Client{Timeout: 30 * time.Second},
 	}
+	if feishuEnabled(cfg) {
+		w.feishu = newFeishuClient(cfg.Feishu)
+		logger.Printf("飞书通知已启用: 接收人类型=%s", cfg.Feishu.ReceiveIDType)
+	} else {
+		logger.Printf("飞书通知未配置(跳过), 如需启用请填写 config.json 的 feishu 字段")
+	}
+	return w
 }
 
 func (w *Watcher) toLocal(iso string) string {
@@ -225,6 +233,32 @@ func (w *Watcher) printBlock(title, issueText, changeText, ts string) {
 	w.logger.Printf(sep)
 }
 
+func (w *Watcher) notify(title, color string, issue Issue, changeText string, j Journal, ts string) {
+	if w.feishu == nil {
+		return
+	}
+	var mdBody, note string
+	if changeText != "" {
+		mdBody = w.renderIssueCardMD(issue) + "\n\n" + changeText
+	} else {
+		mdBody = w.renderIssueCardMD(issue)
+	}
+	note = "时间: " + ts
+	if j.User.Name != "" {
+		note += " | 更新人: " + j.User.Name
+	}
+	issueURL := ""
+	if w.cfg.RedmineURL != "" {
+		issueURL = strings.TrimRight(w.cfg.RedmineURL, "/") + fmt.Sprintf("/issues/%d", issue.ID)
+	}
+	card := buildCard(title, mdBody, note, issueURL, color)
+	if err := w.feishu.SendCard(card); err != nil {
+		w.logger.Printf("飞书发送失败: %v", err)
+	} else {
+		w.logger.Printf("飞书通知已发送: %s", title)
+	}
+}
+
 func (w *Watcher) processOnce() {
 	nowUTC := time.Now().UTC().Format(time.RFC3339)
 	lastUpdated := w.state.LastUpdated
@@ -251,7 +285,9 @@ func (w *Watcher) processOnce() {
 
 		if !known {
 			w.state.SeenJournals[key] = maxJID
-			w.printBlock("新增任务", w.renderIssue(issue), "", w.toLocal(issue.CreatedOn))
+			ts := w.toLocal(issue.CreatedOn)
+			w.printBlock("新增任务", w.renderIssue(issue), "", ts)
+			w.notify("新增任务", "green", issue, "", Journal{}, ts)
 			continue
 		}
 
@@ -266,7 +302,9 @@ func (w *Watcher) processOnce() {
 			if len(j.Details) == 0 && strings.TrimSpace(j.Notes) == "" {
 				continue
 			}
-			w.printBlock("属性变化", w.renderIssue(issue), renderJournalDetails(j), w.toLocal(j.CreatedOn))
+			ts := w.toLocal(j.CreatedOn)
+			w.printBlock("属性变化", w.renderIssue(issue), renderJournalDetails(j), ts)
+			w.notify("属性变化", "blue", issue, renderChangeCardMD(j), j, ts)
 		}
 		w.state.SeenJournals[key] = maxJID
 	}

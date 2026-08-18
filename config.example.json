@@ -4,5 +4,12 @@
   "poll_interval": 30,
   "log_file": "watch.log",
   "state_file": "state.json",
-  "timezone": "Asia/Shanghai"
+  "timezone": "Asia/Shanghai",
+  "feishu": {
+    "app_id": "在此填入飞书自建应用的 App ID",
+    "app_secret": "在此填入飞书自建应用的 App Secret",
+    "api_base": "https://open.feishu.cn",
+    "receive_id_type": "open_id",
+    "receive_id": "在此填入接收人的 open_id"
+  }
 }

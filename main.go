@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -110,14 +111,63 @@ func printUsage() {
 	fmt.Println("运行模式:")
 	fmt.Println("  直接运行(无参数 / run): 前台运行, 输出到控制台+日志文件")
 	fmt.Println("  install / start / stop / uninstall / status: 管理 Windows 服务(后台运行)")
+	fmt.Println("  openid: 用手机号/邮箱查询飞书 open_id")
 	fmt.Println()
-	fmt.Println("用法: redmine-watch.exe [run|install|start|stop|uninstall|status]")
+	fmt.Println("用法: redmine-watch.exe [run|openid|install|start|stop|uninstall|status]")
 	fmt.Println("  run        前台运行(go run . 或双击 exe 效果相同)")
+	fmt.Println("  openid     查询接收人的 open_id")
+	fmt.Println("             示例: redmine-watch.exe openid --mobile 13800000000")
+	fmt.Println("                   redmine-watch.exe openid --email user@company.com")
+	fmt.Println("             app_id/app_secret 默认读取 config.json 的 feishu 字段,")
+	fmt.Println("             也可用 --app-id / --app-secret 覆盖")
 	fmt.Println("  install    安装为 Windows 服务(需管理员权限, 开机自启)")
 	fmt.Println("  start      启动服务")
 	fmt.Println("  stop       停止服务")
 	fmt.Println("  uninstall  卸载服务")
 	fmt.Println("  status     查看服务状态")
+}
+
+func runOpenIDCommand(baseDir string) {
+	fs := flag.NewFlagSet("openid", flag.ExitOnError)
+	mobile := fs.String("mobile", "", "接收人手机号")
+	email := fs.String("email", "", "接收人邮箱")
+	appID := fs.String("app-id", "", "飞书 App ID (默认读 config.json)")
+	appSecret := fs.String("app-secret", "", "飞书 App Secret (默认读 config.json)")
+	fs.Parse(os.Args[2:])
+
+	cfg, err := loadConfig(baseDir)
+	if err != nil {
+		// config.json 里 app_id/app_secret 可能未填, 此时允许用命令行参数
+		cfg = Config{}
+	}
+	if *appID != "" {
+		cfg.Feishu.AppID = *appID
+	}
+	if *appSecret != "" {
+		cfg.Feishu.AppSecret = *appSecret
+	}
+	if !feishuAppConfigured(cfg) {
+		fmt.Fprintln(os.Stderr, "错误: 缺少 app_id/app_secret, 请先填写 config.json 或使用 --app-id/--app-secret")
+		os.Exit(1)
+	}
+	if *mobile == "" && *email == "" {
+		fmt.Fprintln(os.Stderr, "错误: 必须提供 --mobile 或 --email")
+		os.Exit(1)
+	}
+
+	client := newFeishuClient(cfg.Feishu)
+	var openID string
+	if *mobile != "" {
+		openID, err = client.GetOpenIDByMobile(*mobile)
+	} else {
+		openID, err = client.GetOpenIDByEmail(*email)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "查询失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("查询成功! 该用户的 open_id 为:\n%s\n", openID)
+	fmt.Println("请将上面的值填入 config.json 的 feishu.receive_id (receive_id_type 保持 open_id)")
 }
 
 func main() {
@@ -153,6 +203,8 @@ func main() {
 			_, _ = fmt.Scanln()
 			os.Exit(1)
 		}
+	case "openid":
+		runOpenIDCommand(base)
 	case "install", "uninstall", "start", "stop", "status":
 		svc, err := service.New(&program{baseDir: base}, svcConfig)
 		if err != nil {
