@@ -105,6 +105,38 @@ func runAsService(cfg Config, baseDir string) {
 	}
 }
 
+func runTestCommand(baseDir string) {
+	cfg, err := loadConfig(baseDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "启动失败: %v\n", err)
+		os.Exit(1)
+	}
+	if !feishuEnabled(cfg) {
+		fmt.Fprintln(os.Stderr, "错误: 飞书未配置完整(app_id/app_secret/receive_id), 请先填写 config.json")
+		os.Exit(1)
+	}
+	client := newFeishuClient(cfg.Feishu)
+	card := buildCard(
+		"测试消息",
+		"**这是一条测试消息**\nRedmine 监控飞书通知配置正常。",
+		"发送时间: "+time.Now().In(loadLoc(cfg.Timezone)).Format("2006-01-02 15:04:05"),
+		cfg.RedmineURL, "blue",
+	)
+	if err := client.SendCard(card); err != nil {
+		fmt.Fprintf(os.Stderr, "发送失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("测试消息发送成功, 请检查飞书消息")
+}
+
+func loadLoc(tzName string) *time.Location {
+	loc, err := time.LoadLocation(tzName)
+	if err != nil {
+		return time.Local
+	}
+	return loc
+}
+
 func printUsage() {
 	fmt.Println("redmine-watch - 监控 Redmine 任务属性变化并打印任务详情")
 	fmt.Println()
@@ -112,14 +144,16 @@ func printUsage() {
 	fmt.Println("  直接运行(无参数 / run): 前台运行, 输出到控制台+日志文件")
 	fmt.Println("  install / start / stop / uninstall / status: 管理 Windows 服务(后台运行)")
 	fmt.Println("  openid: 用手机号/邮箱查询飞书 open_id")
+	fmt.Println("  test: 向配置的接收人发送一条飞书测试消息")
 	fmt.Println()
-	fmt.Println("用法: redmine-watch.exe [run|openid|install|start|stop|uninstall|status]")
+	fmt.Println("用法: redmine-watch.exe [run|openid|test|install|start|stop|uninstall|status]")
 	fmt.Println("  run        前台运行(go run . 或双击 exe 效果相同)")
 	fmt.Println("  openid     查询接收人的 open_id")
 	fmt.Println("             示例: redmine-watch.exe openid --mobile 13800000000")
 	fmt.Println("                   redmine-watch.exe openid --email user@company.com")
 	fmt.Println("             app_id/app_secret 默认读取 config.json 的 feishu 字段,")
 	fmt.Println("             也可用 --app-id / --app-secret 覆盖")
+	fmt.Println("  test       发送一条测试消息到 config.json 配置的接收人")
 	fmt.Println("  install    安装为 Windows 服务(需管理员权限, 开机自启)")
 	fmt.Println("  start      启动服务")
 	fmt.Println("  stop       停止服务")
@@ -205,6 +239,8 @@ func main() {
 		}
 	case "openid":
 		runOpenIDCommand(base)
+	case "test":
+		runTestCommand(base)
 	case "install", "uninstall", "start", "stop", "status":
 		svc, err := service.New(&program{baseDir: base}, svcConfig)
 		if err != nil {

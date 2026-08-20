@@ -219,29 +219,40 @@ func (w *Watcher) renderIssueCardMD(issue Issue) string {
 	if issue.AssignedTo != nil {
 		assigned = issue.AssignedTo.Name
 	}
+	fmt.Fprintf(&b, "**任务标题:** %s\n", fmtVal(issue.Subject))
 	fmt.Fprintf(&b, "**项目:** %s | **跟踪:** %s | **状态:** %s | **优先级:** %s\n",
 		issue.Project.Name, issue.Tracker.Name, issue.Status.Name, issue.Priority.Name)
-	fmt.Fprintf(&b, "**指派给:** %s | **作者:** %s | **完成度:** %d%%\n",
-		assigned, issue.Author.Name, issue.DoneRatio)
-	est := ""
-	if issue.EstimatedHours != nil {
-		est = fmt.Sprintf("%v", *issue.EstimatedHours)
+	fmt.Fprintf(&b, "**指派给:** %s | **作者:** %s | **开始:** %s\n",
+		assigned, issue.Author.Name, fmtVal(issue.StartDate))
+	if cf := w.renderCustomFields(issue); cf != "" {
+		fmt.Fprintf(&b, "\n**自定义:** %s", cf)
 	}
-	fmt.Fprintf(&b, "**开始:** %s | **到期:** %s | **预估工时:** %s h",
-		fmtVal(issue.StartDate), fmtVal(issue.DueDate), est)
 	return b.String()
 }
 
-// renderChangeCardMD 生成变更明细 markdown。
-func renderChangeCardMD(j Journal) string {
+// renderChangeCardMD 生成变更明细 markdown, attrSet 非空时只输出指定属性。
+func renderChangeCardMD(j Journal, attrSet map[string]bool, cfNames map[string]string) string {
 	var b strings.Builder
 	b.WriteString("**变更明细:**\n")
 	for _, d := range j.Details {
+		name := d.Name
+		if d.Property == "cf" {
+			if n, ok := cfNames[d.Name]; ok {
+				name = n
+			}
+		}
+		if len(attrSet) > 0 && !attrSet[name] {
+			if !(d.Property == "attachment" && attrSet["attachment"]) {
+				continue
+			}
+		}
 		switch d.Property {
 		case "attr":
-			fmt.Fprintf(&b, "- 属性 [%s]: %s → %s\n", d.Name, fmtVal(d.OldValue), fmtVal(d.NewValue))
+			fmt.Fprintf(&b, "- 属性 [%s]: %s → %s\n", name, fmtVal(d.OldValue), fmtVal(d.NewValue))
+		case "cf":
+			fmt.Fprintf(&b, "- 自定义属性 [%s]: %s → %s\n", name, fmtVal(d.OldValue), fmtVal(d.NewValue))
 		case "attachment":
-			fmt.Fprintf(&b, "- 附件 [%s] 添加\n", d.Name)
+			fmt.Fprintf(&b, "- 附件 [%s] 添加\n", name)
 		default:
 			fmt.Fprintf(&b, "- 变更: %s → %s\n", fmtVal(d.OldValue), fmtVal(d.NewValue))
 		}

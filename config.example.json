@@ -11,5 +11,14 @@
     "api_base": "https://open.feishu.cn",
     "receive_id_type": "open_id",
     "receive_id": "在此填入接收人的 open_id"
+  },
+  "filter": {
+    "monitor_weekdays": [],
+    "monitor_start": "",
+    "monitor_end": "",
+    "projects": [],
+    "assignees": [],
+    "attributes": [],
+    "checkbox_fields": []
   }
 }

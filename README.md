@@ -42,6 +42,15 @@ go build -o redmine-watch.exe .
     "api_base": "https://open.feishu.cn",
     "receive_id_type": "open_id",
     "receive_id": "接收人的 open_id"
+  },
+  "filter": {
+    "monitor_weekdays": [1, 2, 3, 4, 5],
+    "monitor_start": "09:00",
+    "monitor_end": "18:00",
+    "projects": [],
+    "assignees": [],
+    "attributes": [],
+    "checkbox_fields": []
   }
 }
 ```
@@ -57,6 +66,43 @@ go build -o redmine-watch.exe .
 | `feishu.api_base` | 飞书开放平台地址（国内版默认，国际版填 `https://open.larksuite.com`） |
 | `feishu.receive_id_type` | 接收人标识类型：`open_id`（默认）/ `user_id` / `email` / `mobile` |
 | `feishu.receive_id` | 接收人的标识 |
+| `filter.monitor_weekdays` | 监控的工作日：`1`=周一 … `7`=周日；空 = 不限制 |
+| `filter.monitor_start` / `monitor_end` | 监控活跃时段（`"HH:MM"`，含头不含尾）。非监控时段暂停轮询与推送，回到时段后**一次性补报**期间发生的变更 |
+| `filter.projects` | 只监控指定项目（匹配任务项目名，忽略大小写、支持子串）；空 = 全部 |
+| `filter.assignees` | 只监控**指派给**这些人的任务；空 = 全部。填入关键字 `"unassigned"`（或空字符串 `""`）表示匹配**未指派**的任务，可与具体人名混用 |
+| `filter.attributes` | 只报告这些属性的变化（对应 journal detail 的 `name`）；空 = 全部 |
+| `filter.checkbox_fields` | 自定义字段中按"是否"显示的字段名（值 `1` 显示为"是"、`0` 为"否"）；空 = 原样显示 |
+
+`filter.attributes` 按 journal detail 的 `name` 匹配（标准属性 `property=attr`、自定义字段 `property=cf`）。常用/完整属性名清单：
+
+| 属性名 | 含义 | 说明 |
+| --- | --- | --- |
+| `status` | 状态 | |
+| `priority` | 优先级 | |
+| `assigned_to` | 指派给 | 含"取消指派"（new 为空） |
+| `done_ratio` | 完成度 | |
+| `start_date` / `due_date` | 开始 / 到期日期 | |
+| `estimated_hours` | 预估工时 | |
+| `tracker` | 跟踪类型 | 如 任务/缺陷/需求 |
+| `project` | 项目 | 跨项目移动任务时 |
+| `fixed_version` | 版本 | |
+| `subject` | 主题 | |
+| `description` | 描述 | |
+| `category` | 分类 | |
+| `parent` | 父任务 | |
+| `author` | 作者 | |
+| `watchers` | 关注者 | 新增/移除关注人 |
+| `is_private` | 私有 | |
+| `attachments` | 附件 | 添加附件时 |
+| `<自定义字段名>` | 自定义字段 | 用显示名称，如 `"客户"`、`"权重"` |
+
+> **新旧 Redmine 自动兼容**：新版 Redmine 的引用类属性 detail 名称带 `_id` 后缀（如 `assigned_to_id`，值为对象 ID），自定义字段的 detail 名称为**字段 ID**。程序会自动做别名归一化——你只需写显示名（`assigned_to`、`权重`），`assigned_to_id`、字段 ID 都能命中；控制台/卡片里则显示真实 detail 名称。
+>
+> **注意**：`updated_on`、`created_on`、`closed_on`、`spent_hours` 等**不是** journal detail 名称，填了也匹配不到——不要写进 `filter.attributes`。程序的"变化检测"本身就基于 `updated_on` 增量拉取，新任务和发生变更的任务会被自动纳入，无需也无法单独过滤 `updated_on`。
+
+> **自定义字段同样支持**：把自定义字段的**显示名称**填入 `filter.attributes` 即可，例如 `"客户"`。自定义字段变化时，日志显示为「自定义属性 [客户]」。
+
+> 提示：监控时段是「活跃窗口」，非窗口内不轮询、不推送，回到窗口后自动补报。新任务报告不受 `filter.attributes` 限制，但受项目/指派给过滤。
 
 ## 运行方式
 

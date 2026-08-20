@@ -16,6 +16,24 @@ type FeishuConfig struct {
 	ReceiveID     string `json:"receive_id"`
 }
 
+// FilterConfig 监控过滤规则。
+// 全部为空/未设置表示不限制。
+type FilterConfig struct {
+	// MonitorWeekdays 监控的工作日, 1=周一 ... 7=周日; 空 = 不限制
+	MonitorWeekdays []int `json:"monitor_weekdays"`
+	// MonitorStart/MonitorEnd 监控活跃时段, 24 小时制 "HH:MM" (含头不含尾); 空 = 不限制
+	MonitorStart string `json:"monitor_start"`
+	MonitorEnd   string `json:"monitor_end"`
+	// Projects 只监控指定项目 (匹配任务的项目名, 忽略大小写, 支持子串); 空 = 全部
+	Projects []string `json:"projects"`
+	// Assignees 只监控指派给这些人的任务; 空 = 全部
+	Assignees []string `json:"assignees"`
+	// Attributes 只报告这些属性的变化 (journal detail.name), 如 status/priority/assigned_to; 空 = 全部
+	Attributes []string `json:"attributes"`
+	// CheckboxFields 自定义字段中按"是否"显示的字段名 (值为 1 显示"是", 0 显示"否")
+	CheckboxFields []string `json:"checkbox_fields"`
+}
+
 type Config struct {
 	RedmineURL   string       `json:"redmine_url"`
 	APIKey       string       `json:"api_key"`
@@ -24,6 +42,7 @@ type Config struct {
 	StateFile    string       `json:"state_file"`
 	Timezone     string       `json:"timezone"`
 	Feishu       FeishuConfig `json:"feishu"`
+	Filter       FilterConfig `json:"filter"`
 }
 
 func defaultConfig() Config {
