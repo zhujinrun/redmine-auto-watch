@@ -34,15 +34,24 @@ type FilterConfig struct {
 	CheckboxFields []string `json:"checkbox_fields"`
 }
 
+// AutoAssignConfig 自动指派: 当未指派任务的指定自定义字段从 FromValue 变为其他值时,
+// 自动把指派者设置为当前 API 用户(自己)。
+type AutoAssignConfig struct {
+	Enabled     bool   `json:"enabled"`
+	CustomField string `json:"custom_field"`
+	FromValue   string `json:"from_value"`
+}
+
 type Config struct {
-	RedmineURL   string       `json:"redmine_url"`
-	APIKey       string       `json:"api_key"`
-	PollInterval int          `json:"poll_interval"`
-	LogFile      string       `json:"log_file"`
-	StateFile    string       `json:"state_file"`
-	Timezone     string       `json:"timezone"`
-	Feishu       FeishuConfig `json:"feishu"`
-	Filter       FilterConfig `json:"filter"`
+	RedmineURL   string           `json:"redmine_url"`
+	APIKey       string           `json:"api_key"`
+	PollInterval int              `json:"poll_interval"`
+	LogFile      string           `json:"log_file"`
+	StateFile    string           `json:"state_file"`
+	Timezone     string           `json:"timezone"`
+	Feishu       FeishuConfig     `json:"feishu"`
+	Filter       FilterConfig     `json:"filter"`
+	AutoAssign   AutoAssignConfig `json:"auto_assign"`
 }
 
 func defaultConfig() Config {

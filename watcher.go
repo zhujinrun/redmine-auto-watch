@@ -81,6 +81,7 @@ type Watcher struct {
 	endMin          int
 	windowSet       bool
 	wasOffWindow    bool
+	selfUserID      int64
 }
 
 func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
@@ -144,6 +145,15 @@ projectSet:      toLowerSet(cfg.Filter.Projects),
 	}
 	if len(w.attrSet) > 0 {
 		logger.Printf("属性过滤: %v", cfg.Filter.Attributes)
+	}
+	if cfg.AutoAssign.Enabled {
+		if id, err := w.fetchCurrentUserID(); err != nil {
+			logger.Printf("警告: 自动指派已启用但获取当前用户失败: %v (自动指派不可用)", err)
+		} else {
+			w.selfUserID = id
+			logger.Printf("自动指派已启用: 未指派任务的自定义字段 [%s] 从 %q 变为其他值时, 指派给当前用户(id=%d)",
+				cfg.AutoAssign.CustomField, cfg.AutoAssign.FromValue, id)
+		}
 	}
 	if feishuEnabled(cfg) {
 		w.feishu = newFeishuClient(cfg.Feishu)
@@ -405,6 +415,75 @@ func (w *Watcher) fetchIssueJournals(id int64) (Issue, error) {
 	return data.Issue, nil
 }
 
+// fetchCurrentUserID 获取当前 API 用户(自己)的用户 ID。
+func (w *Watcher) fetchCurrentUserID() (int64, error) {
+	body, err := w.redmineGet("/users/current.json", nil)
+	if err != nil {
+		return 0, err
+	}
+	var data struct {
+		User struct {
+			ID int64 `json:"id"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return 0, fmt.Errorf("解析 users/current.json 失败: %w", err)
+	}
+	return data.User.ID, nil
+}
+
+// shouldAutoAssign 判断该 journal 是否满足自动指派条件:
+// 任务当前未指派, 且指定自定义字段从 FromValue 变为其他非空值。
+func (w *Watcher) shouldAutoAssign(issue Issue, j Journal) bool {
+	if w.selfUserID == 0 || issue.AssignedTo != nil {
+		return false
+	}
+	cf := w.cfg.AutoAssign.CustomField
+	if cf == "" {
+		return false
+	}
+	cfNames := cfNameMap(issue)
+	for _, d := range j.Details {
+		if d.Property != "cf" {
+			continue
+		}
+		name := d.Name
+		if n, ok := cfNames[d.Name]; ok {
+			name = n
+		}
+		if name != cf {
+			continue
+		}
+		old, new := fmtVal(d.OldValue), fmtVal(d.NewValue)
+		if old == w.cfg.AutoAssign.FromValue && new != old && new != "(空)" {
+			return true
+		}
+	}
+	return false
+}
+
+// autoAssign 把任务指派给当前 API 用户。
+func (w *Watcher) autoAssign(id int64) error {
+	payload := fmt.Sprintf(`{"issue":{"assigned_to_id":%d}}`, w.selfUserID)
+	u := strings.TrimRight(w.cfg.RedmineURL, "/") + fmt.Sprintf("/issues/%d.json", id)
+	req, err := http.NewRequest(http.MethodPut, u, strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Redmine-API-Key", w.cfg.APIKey)
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Redmine 返回状态码 %d: %s", resp.StatusCode, truncate(string(body), 300))
+	}
+	return nil
+}
+
 func fmtVal(v interface{}) string {
 	if v == nil {
 		return "(空)"
@@ -612,9 +691,26 @@ func (w *Watcher) processOnce() {
 		}
 
 		cfNames := cfNameMap(issue)
+		assigned := false
 		for _, j := range journals {
 			if j.ID <= lastJID {
 				continue
+			}
+			if !assigned && w.shouldAutoAssign(issue, j) {
+				if err := w.autoAssign(issue.ID); err != nil {
+					w.logger.Printf("自动指派任务 #%d 失败: %v", issue.ID, err)
+				} else {
+					w.logger.Printf("已自动指派任务 #%d 给自己", issue.ID)
+					assigned = true
+					// 重新拉取以跳过"指派变更"这条自身产生的 journal
+					if full2, err := w.fetchIssueJournals(issue.ID); err == nil {
+						if len(full2.Journals) > 0 {
+							if m := full2.Journals[len(full2.Journals)-1].ID; m > maxJID {
+								maxJID = m
+							}
+						}
+					}
+				}
 			}
 			if !w.journalRelevant(issue, j) {
 				continue

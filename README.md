@@ -51,6 +51,11 @@ go build -o redmine-watch.exe .
     "assignees": [],
     "attributes": [],
     "checkbox_fields": []
+  },
+  "auto_assign": {
+    "enabled": false,
+    "custom_field": "权重",
+    "from_value": "1"
   }
 }
 ```
@@ -72,6 +77,11 @@ go build -o redmine-watch.exe .
 | `filter.assignees` | 只监控**指派给**这些人的任务；空 = 全部。填入关键字 `"unassigned"`（或空字符串 `""`）表示匹配**未指派**的任务，可与具体人名混用 |
 | `filter.attributes` | 只报告这些属性的变化（对应 journal detail 的 `name`）；空 = 全部 |
 | `filter.checkbox_fields` | 自定义字段中按"是否"显示的字段名（值 `1` 显示为"是"、`0` 为"否"）；空 = 原样显示 |
+| `auto_assign.enabled` | 是否启用自动指派 |
+| `auto_assign.custom_field` | 触发条件中的自定义字段（显示名，如 `"权重"`） |
+| `auto_assign.from_value` | 当该字段从该值变为其他值时触发（如 `"1"`） |
+
+> **自动指派**：启用后，当**未指派**的任务其指定自定义字段从 `from_value` 变为其他非空值时，程序会自动把指派者设置为**当前 API 用户（自己）**。变更仍会正常报告。指派后自身产生的"指派变更" journal 会被跳过，不会重复通知。关闭只需设 `enabled: false`。
 
 `filter.attributes` 按 journal detail 的 `name` 匹配（标准属性 `property=attr`、自定义字段 `property=cf`）。常用/完整属性名清单：
 

@@ -20,5 +20,10 @@
     "assignees": [],
     "attributes": [],
     "checkbox_fields": []
+  },
+  "auto_assign": {
+    "enabled": false,
+    "custom_field": "权重",
+    "from_value": "1"
   }
 }

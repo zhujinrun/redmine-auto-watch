@@ -25,7 +25,7 @@ func (m *mockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case strings.HasSuffix(r.URL.Path, "/issues.json"):
-		_, _ = w.Write(m.listBody())
+		_, _ = w.Write(listBodyFrom(m.issueJSON))
 	case strings.Contains(r.URL.Path, "/issues/"):
 		_, _ = fmt.Fprint(w, m.issueJSON)
 	default:
@@ -33,12 +33,12 @@ func (m *mockHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// listBody 从单任务 JSON 派生列表响应, 去掉 journals 字段。
-func (m *mockHandler) listBody() []byte {
+// listBodyFrom 从单任务 JSON 派生列表响应, 去掉 journals 字段。
+func listBodyFrom(single string) []byte {
 	var full struct {
 		Issue map[string]interface{} `json:"issue"`
 	}
-	if err := json.Unmarshal([]byte(m.issueJSON), &full); err != nil {
+	if err := json.Unmarshal([]byte(single), &full); err != nil {
 		return []byte(`{"issues":[],"total_count":0}`)
 	}
 	delete(full.Issue, "journals")
@@ -373,6 +373,123 @@ func TestNewSchemaAttributeMatch(t *testing.T) {
 	}
 	if w.state.SeenJournals["1"] != 11 {
 		t.Fatalf("seen_journals 应为 11, 实际 %d", w.state.SeenJournals["1"])
+	}
+}
+
+// autoAssignHandler 模拟: 提供 /users/current.json, 记录对任务发起的 PUT(自动指派)。
+type autoAssignHandler struct {
+	issueJSON string
+	putCount  int
+	putBodies []string
+}
+
+func (m *autoAssignHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case strings.HasSuffix(r.URL.Path, "/issues.json"):
+		_, _ = w.Write(listBodyFrom(m.issueJSON))
+	case strings.HasSuffix(r.URL.Path, "/users/current.json"):
+		_, _ = fmt.Fprint(w, `{"user":{"id":5}}`)
+	case strings.Contains(r.URL.Path, "/issues/"):
+		if r.Method == http.MethodPut {
+			b, _ := io.ReadAll(r.Body)
+			m.putCount++
+			m.putBodies = append(m.putBodies, string(b))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = fmt.Fprint(w, m.issueJSON)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func TestAutoAssignUnassigned(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// 未指派任务, 权重(cf id=2) 从 1 变为 2
+	j11 := journalJSON(11, "2026-08-19T00:00:00Z",
+		`{"property":"cf","name":"2","old_value":"1","new_value":"2"}`)
+	issueBody := fmt.Sprintf(`{"issue": {
+  "id": 1,
+  "subject": "待指派任务",
+  "project": {"name": "eAssist"},
+  "tracker": {"name": "任务"},
+  "status": {"name": "进行中"},
+  "priority": {"name": "高"},
+  "author": {"name": "朱 锦润"},
+  "description": "",
+  "start_date": "2026-08-19",
+  "done_ratio": 0,
+  "created_on": "2026-08-19T00:00:00Z",
+  "updated_on": "2026-08-19T00:00:00Z",
+  "custom_fields": [{"id": 1, "name": "统计", "value": "1"}, {"id": 2, "name": "权重", "value": "2"}],
+  "journals": [%s]
+}}`, j11)
+
+	h := &autoAssignHandler{issueJSON: issueBody}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	cfg := Config{
+		RedmineURL:   srv.URL,
+		APIKey:       "k",
+		PollInterval: 30,
+		LogFile:      "watch.log",
+		StateFile:    "state.json",
+		Timezone:     "Asia/Shanghai",
+		AutoAssign:   AutoAssignConfig{Enabled: true, CustomField: "权重", FromValue: "1"},
+	}
+	w := newWatcher(cfg, baseDir, testLogger())
+	w.state.SeenJournals["1"] = 10
+
+	buf := &bytes.Buffer{}
+	w.logger = &Logger{Logger: log.New(buf, "", log.LstdFlags)}
+	w.processOnce()
+
+	if h.putCount != 1 {
+		t.Fatalf("应发起 1 次自动指派 PUT, 实际 %d", h.putCount)
+	}
+	if !strings.Contains(h.putBodies[0], `"assigned_to_id":5`) {
+		t.Fatalf("PUT 应指派给用户 id=5, 实际请求体: %s", h.putBodies[0])
+	}
+	out := buf.String()
+	if !strings.Contains(out, "已自动指派任务 #1 给自己") {
+		t.Fatalf("应记录自动指派日志, 实际输出:\n%s", out)
+	}
+	if !strings.Contains(out, "[属性变化]") {
+		t.Fatalf("权重变化仍应正常报告, 实际输出:\n%s", out)
+	}
+}
+
+func TestAutoAssignNotTriggerWhenAssigned(t *testing.T) {
+	baseDir := t.TempDir()
+
+	// 已指派的任务(李四), 权重从 1 变 2: 不应自动指派
+	j11 := journalJSON(11, "2026-08-19T00:00:00Z",
+		`{"property":"cf","name":"2","old_value":"1","new_value":"2"}`)
+	h := &mockHandler{issueJSON: issueJSON(1, "2026-08-19T00:00:00Z", j11)}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	cfg := Config{
+		RedmineURL:   srv.URL,
+		APIKey:       "k",
+		PollInterval: 30,
+		LogFile:      "watch.log",
+		StateFile:    "state.json",
+		Timezone:     "Asia/Shanghai",
+		AutoAssign:   AutoAssignConfig{Enabled: true, CustomField: "权重", FromValue: "1"},
+	}
+	w := newWatcher(cfg, baseDir, testLogger())
+	w.state.SeenJournals["1"] = 10
+
+	buf := &bytes.Buffer{}
+	w.logger = &Logger{Logger: log.New(buf, "", log.LstdFlags)}
+	w.processOnce()
+
+	if strings.Contains(buf.String(), "已自动指派") {
+		t.Fatalf("已指派任务不应自动指派, 实际输出:\n%s", buf.String())
 	}
 }
 
