@@ -60,6 +60,9 @@ func runForeground(baseDir string) error {
 		return fmt.Errorf("无法创建日志文件: %w", err)
 	}
 	logger.Printf("Redmine 监控已启动: %s (轮询间隔 %d 秒)", cfg.RedmineURL, cfg.PollInterval)
+	if cfg.InsecureSkipVerify {
+		logger.Printf("已跳过 HTTPS 证书校验(仅用于证书过期的内网环境, 请知悉风险)")
+	}
 	logger.Printf("前台运行模式, 日志文件: %s (Ctrl+C 退出)", cfg.LogFile)
 	w := newWatcher(cfg, baseDir, logger)
 	w.processOnce()

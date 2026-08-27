@@ -5,6 +5,7 @@
   "log_file": "watch.log",
   "state_file": "state.json",
   "timezone": "Asia/Shanghai",
+  "insecure_skip_verify": false,
   "feishu": {
     "app_id": "在此填入飞书自建应用的 App ID",
     "app_secret": "在此填入飞书自建应用的 App Secret",

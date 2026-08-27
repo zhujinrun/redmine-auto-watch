@@ -67,6 +67,7 @@ go build -o redmine-watch.exe .
 | `poll_interval` | 轮询间隔（秒） |
 | `log_file` / `state_file` | 日志文件、状态文件（生成在 exe 同目录） |
 | `timezone` | 打印时间使用的时区 |
+| `insecure_skip_verify` | `true` 时跳过 HTTPS 证书校验（适用于自签名或**证书过期**的内网 Redmine；`http://` 站点无需开启） |
 | `feishu.app_id` / `app_secret` | 飞书自建应用凭证（不填则跳过飞书通知） |
 | `feishu.api_base` | 飞书开放平台地址（国内版默认，国际版填 `https://open.larksuite.com`） |
 | `feishu.receive_id_type` | 接收人标识类型：`open_id`（默认）/ `user_id` / `email` / `mobile` |

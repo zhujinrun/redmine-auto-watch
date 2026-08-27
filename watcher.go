@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,14 +91,20 @@ func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
 		logger.Printf("警告: 无法加载时区 %q, 回退到本地时区: %v", cfg.Timezone, err)
 		loc = time.Local
 	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	if cfg.InsecureSkipVerify {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
 	w := &Watcher{
 		cfg:         cfg,
 		baseDir:     baseDir,
 		logger:      logger,
 		state:       loadState(baseDir),
 		loc:         loc,
-		client:      &http.Client{Timeout: 30 * time.Second},
-projectSet:      toLowerSet(cfg.Filter.Projects),
+		client:      client,
+		projectSet:  toLowerSet(cfg.Filter.Projects),
 		assigneeSet:     toLowerSet(cfg.Filter.Assignees),
 		attrSet:         expandAttrNames(cfg.Filter.Attributes),
 		checkboxSet:     toSet(cfg.Filter.CheckboxFields),

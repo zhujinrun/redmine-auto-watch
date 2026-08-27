@@ -49,9 +49,11 @@ type Config struct {
 	LogFile      string           `json:"log_file"`
 	StateFile    string           `json:"state_file"`
 	Timezone     string           `json:"timezone"`
-	Feishu       FeishuConfig     `json:"feishu"`
-	Filter       FilterConfig     `json:"filter"`
-	AutoAssign   AutoAssignConfig `json:"auto_assign"`
+	// InsecureSkipVerify 跳过 HTTPS 证书校验 (适用于自签名或证书过期的内网 Redmine)
+	InsecureSkipVerify bool             `json:"insecure_skip_verify"`
+	Feishu             FeishuConfig     `json:"feishu"`
+	Filter             FilterConfig     `json:"filter"`
+	AutoAssign         AutoAssignConfig `json:"auto_assign"`
 }
 
 func defaultConfig() Config {
