@@ -38,19 +38,20 @@ type Journal struct {
 }
 
 type Issue struct {
-	ID             int64     `json:"id"`
-	Subject        string    `json:"subject"`
-	Project        NameObj   `json:"project"`
-	Tracker        NameObj   `json:"tracker"`
-	Status         NameObj   `json:"status"`
-	Priority       NameObj   `json:"priority"`
-	Author         NameObj   `json:"author"`
-	AssignedTo     *NameObj  `json:"assigned_to"`
-	Description    string    `json:"description"`
-	StartDate      string    `json:"start_date"`
-	DueDate        string    `json:"due_date"`
-	EstimatedHours *float64  `json:"estimated_hours"`
-	SpentHours     *float64  `json:"spent_hours"`
+	ID             int64         `json:"id"`
+	Subject        string        `json:"subject"`
+	Project        NameObj       `json:"project"`
+	Tracker        NameObj       `json:"tracker"`
+	Status         NameObj       `json:"status"`
+	Priority       NameObj       `json:"priority"`
+	Author         NameObj       `json:"author"`
+	AssignedTo     *NameObj      `json:"assigned_to"`
+	Description    string        `json:"description"`
+	StartDate      string        `json:"start_date"`
+	DueDate        string        `json:"due_date"`
+	ClosedOn       string        `json:"closed_on"`
+	EstimatedHours *float64      `json:"estimated_hours"`
+	SpentHours     *float64      `json:"spent_hours"`
 	DoneRatio      int           `json:"done_ratio"`
 	CreatedOn      string        `json:"created_on"`
 	UpdatedOn      string        `json:"updated_on"`
@@ -70,7 +71,7 @@ type Watcher struct {
 	state   *State
 	loc     *time.Location
 	client  *http.Client
-	feishu  *FeishuClient
+	feishu  cardSender
 
 	projectSet      map[string]bool
 	assigneeSet     map[string]bool
@@ -91,12 +92,7 @@ func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
 		logger.Printf("警告: 无法加载时区 %q, 回退到本地时区: %v", cfg.Timezone, err)
 		loc = time.Local
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	if cfg.InsecureSkipVerify {
-		client.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
-	}
+	client := newAPIClient(cfg)
 	w := &Watcher{
 		cfg:         cfg,
 		baseDir:     baseDir,
@@ -105,12 +101,12 @@ func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
 		loc:         loc,
 		client:      client,
 		projectSet:  toLowerSet(cfg.Filter.Projects),
-		assigneeSet:     toLowerSet(cfg.Filter.Assignees),
-		attrSet:         expandAttrNames(cfg.Filter.Attributes),
-		checkboxSet:     toSet(cfg.Filter.CheckboxFields),
-		weekdaySet:      make(map[int]bool),
-		startMin:     -1,
-		endMin:       -1,
+		assigneeSet: toLowerSet(cfg.Filter.Assignees),
+		attrSet:     expandAttrNames(cfg.Filter.Attributes),
+		checkboxSet: toSet(cfg.Filter.CheckboxFields),
+		weekdaySet:  make(map[int]bool),
+		startMin:    -1,
+		endMin:      -1,
 	}
 	// assignees 中的空字符串或关键字 "unassigned" 表示匹配"未指派"的任务
 	for _, it := range cfg.Filter.Assignees {
@@ -168,6 +164,14 @@ func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
 	} else {
 		logger.Printf("飞书通知未配置(跳过), 如需启用请填写 config.json 的 feishu 字段")
 	}
+	if cfg.DailyReport.Enabled {
+		if w.feishu != nil {
+			logger.Printf("每日报告已启用: 每天 %s 发送项目 %s 当月已完成任务统计",
+				cfg.DailyReport.Time, cfg.DailyReport.Project)
+		} else {
+			logger.Printf("警告: 每日报告已启用但飞书未配置, 无法发送")
+		}
+	}
 	return w
 }
 
@@ -194,24 +198,24 @@ func toLowerSet(items []string) map[string]bool {
 // attrAliases 新旧 Redmine 的 journal detail 名称对照。
 // 新版用 "assigned_to_id"(值为对象ID), 旧版用 "assigned_to"(值为对象名)。
 var attrAliases = map[string][]string{
-	"assigned_to":   {"assigned_to_id"},
-	"assigned_to_id": {"assigned_to"},
-	"priority":      {"priority_id"},
-	"priority_id":   {"priority"},
-	"status":        {"status_id"},
-	"status_id":     {"status"},
-	"category":      {"category_id"},
-	"category_id":   {"category"},
-	"fixed_version": {"fixed_version_id"},
+	"assigned_to":      {"assigned_to_id"},
+	"assigned_to_id":   {"assigned_to"},
+	"priority":         {"priority_id"},
+	"priority_id":      {"priority"},
+	"status":           {"status_id"},
+	"status_id":        {"status"},
+	"category":         {"category_id"},
+	"category_id":      {"category"},
+	"fixed_version":    {"fixed_version_id"},
 	"fixed_version_id": {"fixed_version"},
-	"project":       {"project_id"},
-	"project_id":    {"project"},
-	"tracker":       {"tracker_id"},
-	"tracker_id":    {"tracker"},
-	"parent":        {"parent_id"},
-	"parent_id":     {"parent"},
-	"author":        {"author_id"},
-	"author_id":     {"author"},
+	"project":          {"project_id"},
+	"project_id":       {"project"},
+	"tracker":          {"tracker_id"},
+	"tracker_id":       {"tracker"},
+	"parent":           {"parent_id"},
+	"parent_id":        {"parent"},
+	"author":           {"author_id"},
+	"author_id":        {"author"},
 }
 
 // expandAttrNames 生成属性过滤集合, 将配置项与其新旧名称别名一并加入。
@@ -353,7 +357,11 @@ func (w *Watcher) toLocal(iso string) string {
 }
 
 func (w *Watcher) redmineGet(path string, params url.Values) ([]byte, error) {
-	u := strings.TrimRight(w.cfg.RedmineURL, "/") + path
+	return redmineGetWith(w.client, w.cfg, path, params)
+}
+
+func redmineGetWith(client *http.Client, cfg Config, path string, params url.Values) ([]byte, error) {
+	u := strings.TrimRight(cfg.RedmineURL, "/") + path
 	if len(params) > 0 {
 		u += "?" + params.Encode()
 	}
@@ -361,8 +369,8 @@ func (w *Watcher) redmineGet(path string, params url.Values) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Redmine-API-Key", w.cfg.APIKey)
-	resp, err := w.client.Do(req)
+	req.Header.Set("X-Redmine-API-Key", cfg.APIKey)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -375,6 +383,17 @@ func (w *Watcher) redmineGet(path string, params url.Values) ([]byte, error) {
 		return nil, fmt.Errorf("Redmine 返回状态码 %d: %s", resp.StatusCode, truncate(string(body), 300))
 	}
 	return body, nil
+}
+
+// newAPIClient 构造访问 Redmine 的 HTTP 客户端 (按配置决定是否跳过证书校验)。
+func newAPIClient(cfg Config) *http.Client {
+	client := &http.Client{Timeout: 30 * time.Second}
+	if cfg.InsecureSkipVerify {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
+	return client
 }
 
 func (w *Watcher) fetchUpdatedIssues(updatedAfter string) ([]Issue, error) {

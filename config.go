@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type FeishuConfig struct {
@@ -42,18 +43,27 @@ type AutoAssignConfig struct {
 	FromValue   string `json:"from_value"`
 }
 
+// DailyReportConfig 每日报告: 每天到点把"当月已完成任务"统计发送到飞书。
+// 过滤条件与统计页面一致(已关闭+当月+统计=1), 固定内置不可配置。
+type DailyReportConfig struct {
+	Enabled bool   `json:"enabled"`
+	Time    string `json:"time"`    // 每天发送时间 "HH:MM"
+	Project string `json:"project"` // 统计的项目标识, 如 eassist
+}
+
 type Config struct {
-	RedmineURL   string           `json:"redmine_url"`
-	APIKey       string           `json:"api_key"`
-	PollInterval int              `json:"poll_interval"`
-	LogFile      string           `json:"log_file"`
-	StateFile    string           `json:"state_file"`
-	Timezone     string           `json:"timezone"`
+	RedmineURL   string `json:"redmine_url"`
+	APIKey       string `json:"api_key"`
+	PollInterval int    `json:"poll_interval"`
+	LogFile      string `json:"log_file"`
+	StateFile    string `json:"state_file"`
+	Timezone     string `json:"timezone"`
 	// InsecureSkipVerify 跳过 HTTPS 证书校验 (适用于自签名或证书过期的内网 Redmine)
-	InsecureSkipVerify bool             `json:"insecure_skip_verify"`
-	Feishu             FeishuConfig     `json:"feishu"`
-	Filter             FilterConfig     `json:"filter"`
-	AutoAssign         AutoAssignConfig `json:"auto_assign"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify"`
+	Feishu             FeishuConfig      `json:"feishu"`
+	Filter             FilterConfig      `json:"filter"`
+	AutoAssign         AutoAssignConfig  `json:"auto_assign"`
+	DailyReport        DailyReportConfig `json:"daily_report"`
 }
 
 func defaultConfig() Config {
@@ -87,6 +97,14 @@ func loadConfig(baseDir string) (Config, error) {
 	}
 	if cfg.Timezone == "" {
 		cfg.Timezone = "Asia/Shanghai"
+	}
+	if cfg.DailyReport.Enabled {
+		if cfg.DailyReport.Project == "" {
+			return cfg, fmt.Errorf("config.json 中 daily_report.project 不能为空")
+		}
+		if _, err := time.Parse("15:04", cfg.DailyReport.Time); err != nil {
+			return cfg, fmt.Errorf("config.json 中 daily_report.time 格式应为 \"HH:MM\", 实际: %q", cfg.DailyReport.Time)
+		}
 	}
 	return cfg, nil
 }

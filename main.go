@@ -65,13 +65,21 @@ func runForeground(baseDir string) error {
 	}
 	logger.Printf("前台运行模式, 日志文件: %s (Ctrl+C 退出)", cfg.LogFile)
 	w := newWatcher(cfg, baseDir, logger)
+	runWatchLoop(w, cfg.PollInterval)
+	return nil
+}
+
+// runWatchLoop 主循环: 每次 tick 先尝试发送每日报告, 再执行一次变更检测。
+// 每日报告与监控时段窗口无关, 独立按 daily_report.time 触发。
+func runWatchLoop(w *Watcher, intervalSec int) {
+	w.maybeSendDailyReport(time.Now())
 	w.processOnce()
-	ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
+	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
+		w.maybeSendDailyReport(time.Now())
 		w.processOnce()
 	}
-	return nil
 }
 
 type program struct {
@@ -100,12 +108,7 @@ func runAsService(cfg Config, baseDir string) {
 	logger.Printf("Redmine 监控已启动(Windows 服务): %s (轮询间隔 %d 秒)", cfg.RedmineURL, cfg.PollInterval)
 	logger.Printf("日志文件: %s", cfg.LogFile)
 	w := newWatcher(cfg, baseDir, logger)
-	w.processOnce()
-	ticker := time.NewTicker(time.Duration(cfg.PollInterval) * time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		w.processOnce()
-	}
+	runWatchLoop(w, cfg.PollInterval)
 }
 
 func runTestCommand(baseDir string) {
@@ -132,6 +135,35 @@ func runTestCommand(baseDir string) {
 	fmt.Println("测试消息发送成功, 请检查飞书消息")
 }
 
+func runReportCommand(baseDir string) {
+	cfg, err := loadConfig(baseDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "启动失败: %v\n", err)
+		os.Exit(1)
+	}
+	if cfg.DailyReport.Project == "" {
+		fmt.Fprintln(os.Stderr, "错误: 请先在 config.json 填写 daily_report.project(统计项目标识)")
+		os.Exit(1)
+	}
+	if !feishuEnabled(cfg) {
+		fmt.Fprintln(os.Stderr, "错误: 飞书未配置完整(app_id/app_secret/receive_id), 请先填写 config.json")
+		os.Exit(1)
+	}
+	now := time.Now().In(loadLoc(cfg.Timezone))
+	issues, err := fetchMonthlyClosed(newAPIClient(cfg), cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "获取当月已完成任务失败: %v\n", err)
+		os.Exit(1)
+	}
+	rep := aggregateMonthlyReport(issues, now.Format("2006-01"), cfg.DailyReport.Project)
+	if err := newFeishuClient(cfg.Feishu).SendCard(buildReportCard(rep, cfg)); err != nil {
+		fmt.Fprintf(os.Stderr, "发送失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("报告已手动发送: %s 项目 %s 总任务=%d 总权重=%s\n",
+		rep.YearMonth, rep.Project, rep.TotalCount, fmtWeight(rep.TotalWeight))
+}
+
 func loadLoc(tzName string) *time.Location {
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
@@ -148,8 +180,9 @@ func printUsage() {
 	fmt.Println("  install / start / stop / uninstall / status: 管理 Windows 服务(后台运行)")
 	fmt.Println("  openid: 用手机号/邮箱查询飞书 open_id")
 	fmt.Println("  test: 向配置的接收人发送一条飞书测试消息")
+	fmt.Println("  report: 立即生成并发送当月已完成任务统计报告")
 	fmt.Println()
-	fmt.Println("用法: redmine-watch.exe [run|openid|test|install|start|stop|uninstall|status]")
+	fmt.Println("用法: redmine-watch.exe [run|openid|test|report|install|start|stop|uninstall|status]")
 	fmt.Println("  run        前台运行(go run . 或双击 exe 效果相同)")
 	fmt.Println("  openid     查询接收人的 open_id")
 	fmt.Println("             示例: redmine-watch.exe openid --mobile 13800000000")
@@ -157,6 +190,7 @@ func printUsage() {
 	fmt.Println("             app_id/app_secret 默认读取 config.json 的 feishu 字段,")
 	fmt.Println("             也可用 --app-id / --app-secret 覆盖")
 	fmt.Println("  test       发送一条测试消息到 config.json 配置的接收人")
+	fmt.Println("  report     立即生成并发送当月已完成任务统计报告(手动触发, 不影响每日自动发送)")
 	fmt.Println("  install    安装为 Windows 服务(需管理员权限, 开机自启)")
 	fmt.Println("  start      启动服务")
 	fmt.Println("  stop       停止服务")
@@ -244,6 +278,8 @@ func main() {
 		runOpenIDCommand(base)
 	case "test":
 		runTestCommand(base)
+	case "report":
+		runReportCommand(base)
 	case "install", "uninstall", "start", "stop", "status":
 		svc, err := service.New(&program{baseDir: base}, svcConfig)
 		if err != nil {

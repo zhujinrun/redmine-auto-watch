@@ -11,6 +11,7 @@
   - 前台运行：`go run .` 或双击编译后的 exe
   - Windows 服务：后台运行、开机自启
 - 状态持久化：记录每个任务已处理的 journal，避免重复通知
+- 每日报告：每天到点把**当月已完成任务**统计（总数/总权重/按人分组/任务明细）发到飞书
 - token 自动缓存与刷新，token 失效自动重试
 
 ## 环境要求
@@ -56,6 +57,11 @@ go build -o redmine-watch.exe .
     "enabled": false,
     "custom_field": "权重",
     "from_value": "1"
+  },
+  "daily_report": {
+    "enabled": false,
+    "time": "20:05",
+    "project": "eassist"
   }
 }
 ```
@@ -81,8 +87,13 @@ go build -o redmine-watch.exe .
 | `auto_assign.enabled` | 是否启用自动指派 |
 | `auto_assign.custom_field` | 触发条件中的自定义字段（显示名，如 `"权重"`） |
 | `auto_assign.from_value` | 当该字段从该值变为其他值时触发（如 `"1"`） |
+| `daily_report.enabled` | 是否启用每日当月已完成任务统计报告 |
+| `daily_report.time` | 每天发送时间（`"HH:MM"`，需配置在启用时填写） |
+| `daily_report.project` | 统计的项目标识（如 `"eassist"`，即 Redmine 项目 URL 里的标识，需配置在启用时填写） |
 
 > **自动指派**：启用后，当**未指派**的任务其指定自定义字段从 `from_value` 变为其他非空值时，程序会自动把指派者设置为**当前 API 用户（自己）**。变更仍会正常报告。指派后自身产生的"指派变更" journal 会被跳过，不会重复通知。关闭只需设 `enabled: false`。
+
+> **每日报告**：启用后每天 `daily_report.time`（按 `timezone` 时区）发送一次，同一天只发一次（记录在 `state.json` 的 `last_report_date`），发送失败不记录、下个 tick 自动重试。统计口径与 Redmine **统计页面**一致：指定项目内**已关闭**、**关闭时间在当月**、**统计=是**、开始时间在近一年内的任务；程序内固定不可配置。每日报告与监控时段窗口无关，非监控时段也会发送。
 
 `filter.attributes` 按 journal detail 的 `name` 匹配（标准属性 `property=attr`、自定义字段 `property=cf`）。常用/完整属性名清单：
 
@@ -159,10 +170,24 @@ go run .
 
 5. 将查询到的 open_id 填入 `config.json` 的 `feishu.receive_id`
 
+## 每日报告
+
+启用 `daily_report` 后，程序会在每天到点时自动生成「当月已完成任务统计」卡片并发送到飞书：
+
+- 标题：`2026-10 当月已完成任务统计 · eAssist`
+- 内容：总任务数、总权重、**按人分组统计（按总权重降序）**、任务明细（`#编号 [权重N] 标题`，按关闭时间倒序）
+- 同一天只发一次；发送失败会在下个轮询 tick 自动重试
+
+手动立即发送一次（测试/补发用，不影响当天的自动发送记录）：
+
+```powershell
+.\redmine-watch.exe report
+```
+
 ## 日志与状态
 
 - `watch.log`：UTF-8 编码日志（服务/前台均写入）
-- `state.json`：记录 `last_updated` 与每个任务的已处理 journal id。首次运行从启动时刻开始监控；如需追溯历史，可手动把 `last_updated` 改成更早的时间
+- `state.json`：记录 `last_updated`、每日报告的 `last_report_date`，以及每个任务的已处理 journal id。首次运行从启动时刻开始监控；如需追溯历史，可手动把 `last_updated` 改成更早的时间
 
 ## 测试
 

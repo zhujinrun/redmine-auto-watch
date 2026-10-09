@@ -7,8 +7,10 @@ import (
 )
 
 type State struct {
-	LastUpdated  string           `json:"last_updated"`
-	SeenJournals map[string]int64 `json:"seen_journals"`
+	LastUpdated string `json:"last_updated"`
+	// LastReportDate 每日报告最近发送日期 "2006-01-02", 用于同天去重
+	LastReportDate string           `json:"last_report_date,omitempty"`
+	SeenJournals   map[string]int64 `json:"seen_journals"`
 }
 
 func loadState(baseDir string) *State {

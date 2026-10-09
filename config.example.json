@@ -26,5 +26,10 @@
     "enabled": false,
     "custom_field": "权重",
     "from_value": "1"
+  },
+  "daily_report": {
+    "enabled": false,
+    "time": "20:05",
+    "project": "eassist"
   }
 }
