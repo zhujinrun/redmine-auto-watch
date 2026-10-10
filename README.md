@@ -61,7 +61,8 @@ go build -o redmine-watch.exe .
   "daily_report": {
     "enabled": false,
     "time": "20:05",
-    "project": "eassist"
+    "project": "eassist",
+    "workdays_only": false
   }
 }
 ```
@@ -90,10 +91,13 @@ go build -o redmine-watch.exe .
 | `daily_report.enabled` | 是否启用每日当月已完成任务统计报告 |
 | `daily_report.time` | 每天发送时间（`"HH:MM"`，需配置在启用时填写） |
 | `daily_report.project` | 统计的项目标识（如 `"eassist"`，即 Redmine 项目 URL 里的标识，需配置在启用时填写） |
+| `daily_report.workdays_only` | `true` 时只在**法定工作日**发送：跳过法定节假日与周末，**调休补班日（如周六上班）照常发送** |
 
 > **自动指派**：启用后，当**未指派**的任务其指定自定义字段从 `from_value` 变为其他非空值时，程序会自动把指派者设置为**当前 API 用户（自己）**。变更仍会正常报告。指派后自身产生的"指派变更" journal 会被跳过，不会重复通知。关闭只需设 `enabled: false`。
 
 > **每日报告**：启用后每天 `daily_report.time`（按 `timezone` 时区）发送一次，同一天只发一次（记录在 `state.json` 的 `last_report_date`），发送失败不记录、下个 tick 自动重试。统计口径与 Redmine **统计页面**一致：指定项目内**已关闭**、**关闭时间在当月**、**统计=是**、开始时间在近一年内的任务；程序内固定不可配置。每日报告与监控时段窗口无关，非监控时段也会发送。
+>
+> **法定工作日判断**（`workdays_only: true` 时）：节假日数据来自 [timor.tech](http://timor.tech) 节假日 API，按年拉取并缓存（每年仅请求 1 次）。命中"放假"的日期不发送，"调休补班"日照常发送；数据拉取失败时降级为**周一~周五**判断，并写入日志（1 小时后自动重试拉取）。
 
 `filter.attributes` 按 journal detail 的 `name` 匹配（标准属性 `property=attr`、自定义字段 `property=cf`）。常用/完整属性名清单：
 
@@ -177,6 +181,7 @@ go run .
 - 标题：`2026-10 当月已完成任务统计 · eAssist`
 - 内容：总任务数、总权重、**按人分组统计（按总权重降序）**、任务明细（`#编号 [权重N] 标题`，按关闭时间倒序）
 - 同一天只发一次；发送失败会在下个轮询 tick 自动重试
+- 配置 `workdays_only: true` 时只在**法定工作日**发送（跳过节假日/周末，调休补班日照发）
 
 手动立即发送一次（测试/补发用，不影响当天的自动发送记录）：
 

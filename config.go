@@ -49,6 +49,10 @@ type DailyReportConfig struct {
 	Enabled bool   `json:"enabled"`
 	Time    string `json:"time"`    // 每天发送时间 "HH:MM"
 	Project string `json:"project"` // 统计的项目标识, 如 eassist
+	// WorkdaysOnly true 时只在法定工作日发送(跳过法定节假日/周末,
+	// 调休补班日照常发送)。节假日数据按年从 timor.tech 拉取缓存,
+	// 拉取失败降级为"周一~周五"判断。
+	WorkdaysOnly bool `json:"workdays_only"`
 }
 
 type Config struct {

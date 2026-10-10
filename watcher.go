@@ -84,6 +84,7 @@ type Watcher struct {
 	windowSet       bool
 	wasOffWindow    bool
 	selfUserID      int64
+	cal             holidayCalendar
 }
 
 func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
@@ -166,8 +167,12 @@ func newWatcher(cfg Config, baseDir string, logger *Logger) *Watcher {
 	}
 	if cfg.DailyReport.Enabled {
 		if w.feishu != nil {
-			logger.Printf("每日报告已启用: 每天 %s 发送项目 %s 当月已完成任务统计",
-				cfg.DailyReport.Time, cfg.DailyReport.Project)
+			scope := "每天"
+			if cfg.DailyReport.WorkdaysOnly {
+				scope = "法定工作日"
+			}
+			logger.Printf("每日报告已启用: %s %s 发送项目 %s 当月已完成任务统计",
+				scope, cfg.DailyReport.Time, cfg.DailyReport.Project)
 		} else {
 			logger.Printf("警告: 每日报告已启用但飞书未配置, 无法发送")
 		}

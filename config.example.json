@@ -30,6 +30,7 @@
   "daily_report": {
     "enabled": false,
     "time": "20:05",
-    "project": "eassist"
+    "project": "eassist",
+    "workdays_only": false
   }
 }

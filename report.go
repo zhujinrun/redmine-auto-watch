@@ -203,6 +203,11 @@ func (w *Watcher) maybeSendDailyReport(now time.Time) {
 	if !dailyReportTimeReached(local, dr.Time) {
 		return
 	}
+	// 只在法定工作日发送: 法定节假日/周末跳过, 调休补班日照常发送。
+	// 跳过时不记录日期, 到下个工作日正常发送。
+	if dr.WorkdaysOnly && !w.isLegalWorkday(local) {
+		return
+	}
 	issues, err := fetchMonthlyClosed(w.client, w.cfg)
 	if err != nil {
 		w.logger.Printf("每日报告获取任务失败: %v", err)
