@@ -105,6 +105,12 @@ func TestAggregateMonthlyReport(t *testing.T) {
 			t.Errorf("Tasks[%d].ID = %d, want %d", i, rep.Tasks[i].ID, wantID)
 		}
 	}
+	if rep.Tasks[0].Assignee != "李四" {
+		t.Errorf("Tasks[0].Assignee = %q, want 李四", rep.Tasks[0].Assignee)
+	}
+	if rep.Tasks[4].Assignee != "(未指派)" {
+		t.Errorf("Tasks[4].Assignee = %q, want (未指派)", rep.Tasks[4].Assignee)
+	}
 }
 
 func TestAggregateMonthlyReportEmpty(t *testing.T) {
@@ -146,8 +152,8 @@ func TestBuildReportCard(t *testing.T) {
 		"- 夏 振岩: 1个 / 权重42",
 		"- 祁 前: 1个 / 权重12",
 		"**任务明细(按关闭时间倒序):**",
-		"- #4411 [权重42] 任务乙",
-		"- #4412 [权重12] 任务丙",
+		"- #4411 [权重42] 夏 振岩 任务乙",
+		"- #4412 [权重12] 祁 前 任务丙",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("卡片正文缺少 %q, 实际:\n%s", want, body)

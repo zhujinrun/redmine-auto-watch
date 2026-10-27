@@ -28,6 +28,7 @@ type ReportTask struct {
 	ID       int64
 	Subject  string
 	Weight   float64
+	Assignee string // 指派给, 未指派为 "(未指派)"
 	ClosedOn string
 }
 
@@ -122,7 +123,7 @@ func aggregateMonthlyReport(issues []Issue, yearMonth, project string) MonthlyRe
 		}
 		g.Count++
 		g.Weight += w
-		rep.Tasks = append(rep.Tasks, ReportTask{ID: issue.ID, Subject: issue.Subject, Weight: w, ClosedOn: issue.ClosedOn})
+		rep.Tasks = append(rep.Tasks, ReportTask{ID: issue.ID, Subject: issue.Subject, Weight: w, Assignee: name, ClosedOn: issue.ClosedOn})
 	}
 	for _, g := range groups {
 		rep.Assignees = append(rep.Assignees, *g)
@@ -179,7 +180,7 @@ func buildReportCard(rep MonthlyReport, cfg Config) map[string]interface{} {
 		if i > 0 {
 			tasks.WriteString("\n")
 		}
-		fmt.Fprintf(&tasks, "- #%d [权重%s] %s", t.ID, fmtWeight(t.Weight), truncate(t.Subject, 60))
+		fmt.Fprintf(&tasks, "- #%d [权重%s] %s %s", t.ID, fmtWeight(t.Weight), t.Assignee, truncate(t.Subject, 60))
 	}
 
 	body := summary.String() + "\n\n" + groups.String() + "\n\n" + tasks.String()
